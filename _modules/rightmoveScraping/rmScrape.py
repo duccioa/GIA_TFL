@@ -30,18 +30,36 @@ def removeDuplicates(df):
     outcome.drop(['checked', 'selected'], axis=1,inplace=True)
     return outcome
 
+def fetchCoordinates(url):
+    from lxml import html
+    import requests
+    import re
+    url = 'http://www.rightmove.co.uk/property-for-sale/property-45212490.html'  # DEBUG
+    page = requests.get(url)
+    tree = html.fromstring(page.content)
+    for el in tree.xpath('//div[contains(@class, "pos-rel")]//a'):
+        coords_url = el.xpath('img/@src')[0]
+    try:
+        lat = float(re.search('latitude=(-?\d+\.\d+)', coords_url).group(1))
+        lon = float(re.search('longitude=(-?\d+\.\d+)', coords_url).group(1))
+        d = {'lat':lat, 'lon':lon}
+        print('Fetching succesful')
+        print(d)
+        return(d)
+    except:
+        return {'lat': None, 'lon':None}
 
 
-def Scrape(rightmove_url, rent_or_buy, dest_folder, location, include_url=False):
+def Scrape(rightmove_url, rent_or_buy, dest_folder, location, include_url=False, include_coords = False):
     # imports
     from lxml import html
     import requests
     import pandas as pd
-    pd.set_option('precision', 2)
-    pd.set_option('display.max_rows', 50)
-    pd.set_option('display.max_columns', 500)
-    pd.set_option('display.width', 1000)
-    pd.set_option('display.float_format', lambda x: '%.3f' % x)
+    #pd.set_option('precision', 2)
+    #pd.set_option('display.max_rows', 50)
+    #pd.set_option('display.max_columns', 500)
+    #pd.set_option('display.width', 1000)
+    #pd.set_option('display.float_format', lambda x: '%.3f' % x)
     import datetime as dt
     import re
 
@@ -168,13 +186,26 @@ def Scrape(rightmove_url, rent_or_buy, dest_folder, location, include_url=False)
     print('DONE')
 
     # Reformat the dataframe
-    df_output = df[['search_date','added_date', 'address', 'location', 'postcode', 'rent_or_buy', 'number_bedrooms','price']]
+    df_output = df[['search_date','added_date', 'address', 'location', 'postcode', 'rent_or_buy', 'number_bedrooms','price', 'url']]
     df_output = df_output.assign(property_type=labels)
-    if include_url:
-        df_output['url'] = df['url']
     # Remove duplicates
     print('Remove duplicates')
     df_output = removeDuplicates(df_output)
+    # Fetch coordinates
+    df_output.index.name = 'index'
+    if include_coords:
+        print('Fetching the coordinates')
+        coords = pd.DataFrame()
+        for i, row in df_output.iterrows():
+            url_c = row['url']
+            df_coords = pd.DataFrame([fetchCoordinates(url_c)], index=[i])
+            print(df_coords)
+            coords = coords.append(df_coords)
+        coords.index.name = 'index'
+        df_output = pd.merge(df_output, coords, left_index=True, right_index=True)
+    # Remove url
+    if not include_url:
+        df_output.drop('url', axis=1, inplace=True)
     # Export the results to CSV
     csv_filename = dest_folder + 'rightmove__' + location.replace(' ', '-') + '_' + rent_or_buy + '_results_' + str(
         dt.datetime.today().strftime("%Y-%m-%d_%Hh%Mm")) + '.csv'

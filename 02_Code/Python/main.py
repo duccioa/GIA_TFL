@@ -14,7 +14,7 @@ rightmove_url = 'http://www.rightmove.co.uk/property-for-sale/find.html?searchTy
 # Save in
 data_folder = '/Users/duccioa/CLOUD/01_Cloud/01_Work/04_Projects/0034_TFL/05_Data/'
 
-df = rm.Scrape(rightmove_url,'buy', data_folder, search_location)
+df = rm.Scrape(rightmove_url,'buy', data_folder, search_location, include_url=False, include_coords=False)
 
 m = df['price'].median()
 median_by_numBed = pd.DataFrame(df.groupby(['number_bedrooms'])['price'].median())
