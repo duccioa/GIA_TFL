@@ -1,3 +1,37 @@
+
+def removeDuplicates(df):
+    from difflib import SequenceMatcher
+    df = df.assign(checked=False, selected=False)
+    df.sort_values(['price', 'added_date'], ascending=True, inplace=True)
+    for i, row1 in df.iterrows():
+        if row1['checked']:
+            #print('Already checked')
+            continue
+        else:
+            row1_price = row1['price']
+            row1_propertyType = row1['property_type']
+            row1_numBed = row1['number_bedrooms']
+            row1_address = row1['address']
+
+            df_temp = df[(abs(df['price'] - row1_price) < 40000) & (df['number_bedrooms'] == row1_numBed) & (df['property_type'] == row1_propertyType)]
+
+            if df_temp.shape[0] == 1:
+                df['checked'].loc[df_temp.index] = True
+                df['selected'].loc[df_temp.index] = True
+                #print('One single line')
+            else:
+                #print('More than one line')
+                duplicates = df_temp.apply(lambda row:(SequenceMatcher(None, row1_address, row['address']).ratio() > 0.5), axis=1)
+                df_temp['checked'].ix[duplicates] = True
+                df['checked'].loc[df_temp.index] = True
+                line = df_temp.query('checked == True').sort_values('added_date', ascending=False).iloc[0]
+                df['selected'].loc[line.name] = True
+    outcome = df.query('selected==True')
+    outcome.drop(['checked', 'selected'], axis=1,inplace=True)
+    return outcome
+
+
+
 def Scrape(rightmove_url, rent_or_buy, dest_folder, location, include_url=False):
     # imports
     from lxml import html
@@ -21,7 +55,7 @@ def Scrape(rightmove_url, rent_or_buy, dest_folder, location, include_url=False)
     result_count = int(tree.xpath(xp_result_count)[0].replace(",", ""))
     print('Counted ' + str(result_count) + ' results')
     if result_count > 1050:
-        print('Warning: the number of results exceeds the maximum number that it is possible to fetch from the website. Therefore only the first 1050 results will be recorded.')
+        print('Error: the number of results exceeds the maximum number that it is possible to fetch from the website (max results 1050)')
 
     # Convert the total number of search results into the number of iterations required for the loop
     loop_count = int(result_count / 24)
@@ -91,7 +125,8 @@ def Scrape(rightmove_url, rent_or_buy, dest_folder, location, include_url=False)
     # Extract number of bedrooms from 'type' to a separate column
     print('Processing number of bedrooms')
     df['number_bedrooms'] = df['property_type'].str.extract(r'\b([\d][\d]?)\b', expand=True)
-    df.loc[df['property_type'].str.contains('studio', case=False, na=False), 'number_bedrooms'] = 0
+    df.loc[df['property_type'].str.contains('studio', case=False, na=False), 'number_bedrooms'] = str(0)
+    df['number_bedrooms'] = df['number_bedrooms'].astype(int)
     print('DONE')
     # Add in search_date column to record the date the search was run (i.e. today's date)
     print('Adding date collection date')
@@ -103,6 +138,7 @@ def Scrape(rightmove_url, rent_or_buy, dest_folder, location, include_url=False)
     yesterday = dt.date.today() - dt.timedelta(1)
     df['added_date'].loc[df['added_date'].str.contains(r'\b(Added yesterday)', case=False, na=now)] = yesterday.strftime("%d/%m/%Y")  # Convert 'Added yesterday' yesterday's date
     df['added_date'] = df['added_date'].str.extract(r'\b([0-9]{2}?[/][0-9][0-9]?[/][0-9]{4})\b', expand=True)
+    df = df.assign(added_date=pd.to_datetime(df['added_date']))
     print('DONE')
     # Add search type column
     df['rent_or_buy'] = rent_or_buy
@@ -133,11 +169,14 @@ def Scrape(rightmove_url, rent_or_buy, dest_folder, location, include_url=False)
 
     # Reformat the dataframe
     df_output = df[['search_date','added_date', 'address', 'location', 'postcode', 'rent_or_buy', 'number_bedrooms','price']]
-    df_output = df_output.assign(property_type=labels, inplace = True)
+    df_output = df_output.assign(property_type=labels)
     if include_url:
         df_output['url'] = df['url']
+    # Remove duplicates
+    print('Remove duplicates')
+    df_output = removeDuplicates(df_output)
     # Export the results to CSV
-    csv_filename = dest_folder + 'rightmove__' + location + '_' + rent_or_buy + '_results_' + str(
+    csv_filename = dest_folder + 'rightmove__' + location.replace(' ', '-') + '_' + rent_or_buy + '_results_' + str(
         dt.datetime.today().strftime("%Y-%m-%d_%Hh%Mm")) + '.csv'
     df_output.to_csv(csv_filename, encoding='utf-8')
     print(len(df_output), 'results saved as \'', csv_filename, '\'')
@@ -148,3 +187,5 @@ def Scrape(rightmove_url, rent_or_buy, dest_folder, location, include_url=False)
     #print(df.info())
 
     return df_output
+
+
